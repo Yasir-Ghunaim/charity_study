@@ -18,7 +18,7 @@ export default async function SurveyPage({ params }: { params: Promise<{ phase: 
       <main className="mx-auto max-w-3xl px-5 py-8">
         <h1 className="text-[26px] font-bold">{phase === "pre" ? t("preTitle") : t("postTitle")}</h1>
         <p className="mb-6 mt-1 text-[14.5px] text-muted">{phase === "pre" ? t("preIntro") : t("postIntro")}</p>
-        <SurveyForm survey={survey} next={phase === "pre" ? "/study" : "/done"} />
+        <SurveyForm survey={survey} next={phase === "pre" ? "/study" : "/done"} preview={me.preview} />
       </main>
       <StudyFooter code={me.code} />
     </>

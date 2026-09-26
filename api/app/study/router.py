@@ -269,6 +269,26 @@ def submit_survey(phase: str, body: SurveyIn, request: Request):
     return {"ok": True}
 
 
+@router.post("/survey/{phase}/skip")
+def skip_survey(phase: str, request: Request):
+    """Preview runs only: move past a survey without answering it."""
+    p = _participant(request)
+    if not p.get("is_preview"):
+        raise HTTPException(403, "surveys can only be skipped in preview mode")
+    if phase not in ("pre", "post"):
+        raise HTTPException(404)
+    expected = "consented" if phase == "pre" else "finished"
+    if p["status"] != expected:
+        raise HTTPException(409, f"this survey is not open (status={p['status']})")
+    with studydb.connect() as db:
+        if phase == "pre":
+            db.execute("UPDATE participants SET status='pre_done', pre_done_at=? WHERE id=?", (_now(), p["id"]))
+        else:
+            db.execute("UPDATE participants SET status='completed', completed_at=? WHERE id=?", (_now(), p["id"]))
+    _log(p["id"], f"survey_{phase}_skipped")
+    return {"ok": True}
+
+
 # ------------------------------------------------------------- allocations
 class AllocIn(BaseModel):
     campaignId: str

@@ -7,13 +7,22 @@ import type { Survey } from "@/lib/types";
 
 type Answer = string | number | (string | number)[];
 
-export function SurveyForm({ survey, next }: { survey: Survey; next: string }) {
+export function SurveyForm({ survey, next, preview = false }: { survey: Survey; next: string; preview?: boolean }) {
   const { lang, t } = useLang();
   const router = useRouter();
   const [answers, setAnswers] = useState<Record<string, Answer>>({});
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const set = (id: string, v: Answer) => setAnswers((a) => ({ ...a, [id]: v }));
+
+  async function skip() {
+    setBusy(true); setErr("");
+    try {
+      const r = await fetch(`/api/study/survey/${survey.phase}/skip`, { method: "POST" });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail ?? String(r.status));
+      router.push(next); router.refresh();
+    } catch (e) { setErr((e as Error).message); setBusy(false); }
+  }
 
   async function submit() {
     const missing = survey.questions.filter((q) => q.required &&
@@ -77,6 +86,12 @@ export function SurveyForm({ survey, next }: { survey: Survey; next: string }) {
           className="rounded-xl bg-brand-500 px-7 py-3 text-[15.5px] font-semibold text-white hover:bg-brand-600 disabled:opacity-60">
           {busy ? t("sending") : t("continue")}
         </button>
+        {preview && (
+          <button onClick={skip} disabled={busy}
+            className="rounded-xl border border-[#5c4300]/40 bg-[#fff4d6] px-5 py-3 text-[14.5px] font-semibold text-[#5c4300] hover:bg-[#ffecb3] disabled:opacity-60">
+            {t("skipSurvey")}
+          </button>
+        )}
         {err && <span className="text-[13.5px] text-ember-600">{err}</span>}
       </div>
     </div>
