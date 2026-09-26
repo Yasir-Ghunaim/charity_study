@@ -1,0 +1,17 @@
+# Python
+api/.venv/
+__pycache__/
+*.pyc
+# generated database (API re-seeds automatically when empty)
+api/data/
+# secrets
+.env
+api/.env
+# Node / Next
+web/node_modules/
+web/.next/
+web/next-env.d.ts
+*.tsbuildinfo
+.DS_Store
+.neon
+.env.local

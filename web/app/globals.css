@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-50: #eef6f1;
+  --color-brand-100: #d7eadf;
+  --color-brand-200: #b0d4bf;
+  --color-brand-300: #82b99a;
+  --color-brand-500: #3f7d59;
+  --color-brand-600: #356b4b;
+  --color-brand-700: #2b573d;
+  --color-brand-900: #173222;
+  --color-ember-500: #c4531d;
+  --color-ember-600: #a9461a;
+  --color-ink: #1f2a24;
+  --color-muted: #6b7570;
+  --color-line: #e3e6e4;
+  --color-panel: #f5f7f6;
+  --font-sans: var(--font-plex), "IBM Plex Sans Arabic", "Segoe UI", Tahoma, system-ui, sans-serif;
+  --font-quran: var(--font-amiri), "Amiri", "Traditional Arabic", serif;
+}
+
+html { color-scheme: light; }
+body {
+  background: #ffffff;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+.num { font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: isolate; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.rise { animation: rise .35s ease-out both; }
+@keyframes pulse-dot { 0%,100% { opacity: .35 } 50% { opacity: 1 } }
+.typing span { animation: pulse-dot 1.2s infinite; }
+.typing span:nth-child(2) { animation-delay: .2s; }
+.typing span:nth-child(3) { animation-delay: .4s; }
