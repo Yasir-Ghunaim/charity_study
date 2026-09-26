@@ -32,6 +32,9 @@ export default function Admin() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [msg, setMsg] = useState("");
   const [copied, setCopied] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);      // which action is in flight
+  const [toast, setToast] = useState("");
+  const flash = (text: string) => { setToast(text); setTimeout(() => setToast(""), 1800); };
 
   const call = useCallback(async (path: string, init: RequestInit = {}) => {
     const r = await fetch(`/api/study/admin${path}`, {
@@ -43,40 +46,60 @@ export default function Admin() {
   }, [token]);
 
   const refresh = useCallback(async () => {
-    const d = await call("/studies");
-    setStudies(d.studies); setEngines(d.engines);
-    setSummary(await call(`/summary${filter ? `?study=${encodeURIComponent(filter)}` : ""}`));
+    const [d, sm] = await Promise.all([
+      call("/studies"),
+      call(`/summary${filter ? `?study=${encodeURIComponent(filter)}` : ""}`),
+    ]);
+    setStudies(d.studies); setEngines(d.engines); setSummary(sm);
   }, [call, filter]);
 
   useEffect(() => { try { const t = sessionStorage.getItem("admin_token"); if (t) setToken(t); } catch {} }, []);
-  useEffect(() => { if (authed) refresh().catch((e) => setMsg(e.message)); }, [authed, filter, refresh]);
+  useEffect(() => {
+    if (!authed) return;
+    setBusy("data");
+    refresh().catch((e) => setMsg(e.message)).finally(() => setBusy(null));
+  }, [authed, filter, refresh]);
 
   async function login() {
-    setMsg("");
+    setMsg(""); setBusy("login");
     try { await call("/studies"); setAuthed(true); try { sessionStorage.setItem("admin_token", token); } catch {} }
     catch { setMsg("Wrong token, or STUDY_ADMIN_TOKEN is not set on the API."); }
+    finally { setBusy(null); }
   }
 
   async function save() {
     if (!editing) return;
-    setMsg("");
+    setMsg(""); setBusy("save");
     const body = { ...editing, id: isNew ? (editing.id || undefined) : undefined };
     try {
       if (isNew) await call("/studies", { method: "POST", body: JSON.stringify(body) });
       else await call(`/studies/${editing.id}`, { method: "PATCH", body: JSON.stringify(body) });
-      setEditing(null); await refresh();
+      setEditing(null); flash(isNew ? "Study created" : "Saved"); await refresh();
     } catch (e) { setMsg((e as Error).message); }
+    finally { setBusy(null); }
   }
 
   async function setStatus(s: Study, status: Study["status"]) {
     setMsg("");
-    try { await call(`/studies/${s.id}`, { method: "PATCH", body: JSON.stringify({ status }) }); await refresh(); }
-    catch (e) { setMsg((e as Error).message); }
+    // show the new status at once; put it back if the server refuses
+    setStudies((all) => all.map((x) => (x.id === s.id ? { ...x, status } : x)));
+    setBusy(`status:${s.id}`);
+    try {
+      await call(`/studies/${s.id}`, { method: "PATCH", body: JSON.stringify({ status }) });
+      flash(`“${s.name}” is now ${status}`);
+      void refresh();
+    } catch (e) {
+      setStudies((all) => all.map((x) => (x.id === s.id ? { ...x, status: s.status } : x)));
+      setMsg((e as Error).message);
+    } finally { setBusy(null); }
   }
 
   async function remove(s: Study) {
     if (!confirm(`Delete study "${s.name}"? This only works while it has no participants.`)) return;
-    try { await call(`/studies/${s.id}`, { method: "DELETE" }); await refresh(); } catch (e) { setMsg((e as Error).message); }
+    setBusy(`delete:${s.id}`);
+    try { await call(`/studies/${s.id}`, { method: "DELETE" }); flash("Study deleted"); await refresh(); }
+    catch (e) { setMsg((e as Error).message); }
+    finally { setBusy(null); }
   }
 
   const link = (id: string) => `${typeof window !== "undefined" ? window.location.origin : ""}/s/${id}`;
@@ -92,7 +115,9 @@ export default function Admin() {
       <h1 className="text-2xl font-bold">Study admin</h1>
       <form onSubmit={(e) => { e.preventDefault(); void login(); }} className="mt-5 flex gap-2">
         <input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="STUDY_ADMIN_TOKEN" className={input} />
-        <button className="rounded-lg bg-brand-500 px-4 font-semibold text-white">Sign in</button>
+        <button disabled={busy === "login"} className="flex items-center gap-2 rounded-lg bg-brand-500 px-4 font-semibold text-white disabled:opacity-70">
+          {busy === "login" && <span className="spinner" />} Sign in
+        </button>
       </form>
       {msg && <p className="mt-3 text-ember-600">{msg}</p>}
     </main>
@@ -105,6 +130,11 @@ export default function Admin() {
         <div className="text-muted">AI studies use: <b className="text-ink">{engineLine}</b> · data in {summary?.storage}</div>
       </div>
       {msg && <div className="mt-4 rounded-lg bg-[#fff4ef] px-4 py-2.5 text-ember-600">{msg}</div>}
+      {toast && (
+        <div role="status" className="rise fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full bg-ink px-5 py-2.5 text-white shadow-lg">
+          ✓ {toast}
+        </div>
+      )}
 
       {/* ------------------------------------------------------------ studies */}
       <section className="mt-8">
@@ -121,7 +151,7 @@ export default function Admin() {
             <tbody>
               {studies.length === 0 && <tr><td colSpan={9} className="px-3 py-6 text-center text-muted">No studies yet. Create one to get a participant link.</td></tr>}
               {studies.map((s) => (
-                <tr key={s.id} className="border-t border-line align-top">
+                <tr key={s.id} className={`border-t border-line align-top transition-opacity ${busy === `delete:${s.id}` ? "opacity-40" : ""}`}>
                   <td className="px-3 py-3"><div className="font-semibold">{s.name}</div><div className="font-mono text-[12px] text-muted">{s.id}</div></td>
                   <td className="px-3 py-3">{MODES[s.mode].label}</td>
                   <td className="px-3 py-3">{s.wallet.toLocaleString()}</td>
@@ -129,10 +159,14 @@ export default function Admin() {
                   <td className="px-3 py-3">{[s.preSurvey && "pre", s.postSurvey && "post"].filter(Boolean).join(" + ") || "none"}</td>
                   <td className="px-3 py-3">{n(s)}{n(s) > 0 && <div className="text-[12px] text-muted">{Object.entries(s.participants).map(([k, v]) => `${k} ${v}`).join(" · ")}</div>}</td>
                   <td className="px-3 py-3">
-                    <select value={s.status} onChange={(e) => setStatus(s, e.target.value as Study["status"])}
-                      className={`rounded-md border px-2 py-1 ${s.status === "open" ? "border-brand-500 text-brand-700" : "border-line"}`}>
-                      <option value="draft">draft</option><option value="open">open</option><option value="closed">closed</option>
-                    </select>
+                    <div className="flex items-center gap-2">
+                      <select value={s.status} disabled={busy === `status:${s.id}`}
+                        onChange={(e) => setStatus(s, e.target.value as Study["status"])}
+                        className={`rounded-md border px-2 py-1 disabled:opacity-60 ${s.status === "open" ? "border-brand-500 text-brand-700" : "border-line"}`}>
+                        <option value="draft">draft</option><option value="open">open</option><option value="closed">closed</option>
+                      </select>
+                      {busy === `status:${s.id}` && <span className="flex items-center gap-1 text-[12px] text-muted"><span className="spinner" /> saving…</span>}
+                    </div>
                   </td>
                   <td className="px-3 py-3"><button onClick={() => copy(s.id)} className="text-brand-600 hover:underline">{copied === s.id ? "copied ✓" : "copy link"}</button></td>
                   <td className="px-3 py-3 text-right">
@@ -182,7 +216,10 @@ export default function Admin() {
           <label className="mt-4 block">Notes (for you only)
             <textarea rows={2} className={`${input} mt-1`} value={editing.notes ?? ""} onChange={(e) => setEditing({ ...editing, notes: e.target.value })} /></label>
           <div className="mt-4 flex gap-2">
-            <button onClick={save} className="rounded-lg bg-brand-500 px-5 py-2 font-semibold text-white">{isNew ? "Create (as draft)" : "Save"}</button>
+            <button onClick={save} disabled={busy === "save"}
+              className="flex items-center gap-2 rounded-lg bg-brand-500 px-5 py-2 font-semibold text-white disabled:opacity-70">
+              {busy === "save" && <span className="spinner" />}{busy === "save" ? "Saving…" : isNew ? "Create (as draft)" : "Save"}
+            </button>
             <button onClick={() => setEditing(null)} className="rounded-lg border border-line px-5 py-2">Cancel</button>
           </div>
         </section>
@@ -192,6 +229,7 @@ export default function Admin() {
       <section className="mt-10">
         <div className="flex flex-wrap items-center gap-3">
           <h2 className="text-lg font-semibold">Data</h2>
+          {busy === "data" && <span className="spinner text-brand-500" />}
           <select value={filter} onChange={(e) => setFilter(e.target.value)} className="rounded-lg border border-line bg-white px-3 py-1.5">
             <option value="">All studies</option>
             {studies.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.id})</option>)}
