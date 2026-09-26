@@ -4,6 +4,7 @@ import { useState } from "react";
 import { study } from "@/lib/client";
 import { useLang } from "@/lib/lang";
 import type { Survey } from "@/lib/types";
+import { SkipButton } from "./SkipButton";
 
 type Answer = string | number | (string | number)[];
 
@@ -39,6 +40,7 @@ export function SurveyForm({ survey, next, preview = false }: { survey: Survey; 
 
   return (
     <div className="space-y-4">
+      {preview && <div><SkipButton label={t("skipSurvey")} onClick={skip} disabled={busy} /></div>}
       {survey.questions.map((q, n) => (
         <fieldset key={q.id} id={`q-${q.id}`} className="rounded-2xl border border-line bg-white p-5">
           <legend className="sr-only">{q[lang]}</legend>
@@ -86,12 +88,7 @@ export function SurveyForm({ survey, next, preview = false }: { survey: Survey; 
           className="rounded-xl bg-brand-500 px-7 py-3 text-[15.5px] font-semibold text-white hover:bg-brand-600 disabled:opacity-60">
           {busy ? t("sending") : t("continue")}
         </button>
-        {preview && (
-          <button onClick={skip} disabled={busy}
-            className="rounded-xl border border-[#5c4300]/40 bg-[#fff4d6] px-5 py-3 text-[14.5px] font-semibold text-[#5c4300] hover:bg-[#ffecb3] disabled:opacity-60">
-            {t("skipSurvey")}
-          </button>
-        )}
+        {preview && <SkipButton label={t("skipSurvey")} onClick={skip} disabled={busy} />}
         {err && <span className="text-[13.5px] text-ember-600">{err}</span>}
       </div>
     </div>

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { study as api } from "@/lib/client";
 import { useLang } from "@/lib/lang";
 import type { StudyPublic } from "@/lib/types";
+import { SkipButton } from "./SkipButton";
 
 export function Consent({ study }: { study: StudyPublic }) {
   const { lang, t } = useLang();
@@ -13,6 +14,15 @@ export function Consent({ study }: { study: StudyPublic }) {
   const [nick, setNick] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+
+  async function skipConsent() {
+    setErr(""); setBusy(true);
+    try {
+      await api.join({ studyId: study.id, nickname: "preview", lang, adult: true, consent: true,
+        consentVersion: study.consent.version });
+      router.push(study.preSurvey ? "/survey/pre" : "/study"); router.refresh();
+    } catch (e) { setErr((e as Error).message); setBusy(false); }
+  }
 
   async function start() {
     setErr("");
@@ -28,6 +38,7 @@ export function Consent({ study }: { study: StudyPublic }) {
 
   return (
     <div className="rounded-3xl border border-line bg-white p-6 md:p-8">
+      {study.preview && <div className="mb-5"><SkipButton label={t("skipConsent")} onClick={skipConsent} disabled={busy} /></div>}
       <h1 className="text-[24px] font-bold md:text-[28px]">{c.title}</h1>
       <div className="mt-5 space-y-4">
         {c.sections.map((s) => (
@@ -52,8 +63,11 @@ export function Consent({ study }: { study: StudyPublic }) {
           className="mt-1.5 w-full rounded-xl border border-line px-4 py-3 text-[15px] outline-none focus:border-brand-500 md:w-80" />
         <p className="mt-1 text-[12.5px] text-muted">{t("nicknameHint")}</p>
       </div>
-      <button onClick={start} disabled={busy}
-        className="mt-6 rounded-xl bg-brand-500 px-7 py-3 text-[15.5px] font-semibold text-white hover:bg-brand-600 disabled:opacity-60">{t("start")}</button>
+      <div className="mt-6 flex flex-wrap items-center gap-3">
+        <button onClick={start} disabled={busy}
+          className="rounded-xl bg-brand-500 px-7 py-3 text-[15.5px] font-semibold text-white hover:bg-brand-600 disabled:opacity-60">{t("start")}</button>
+        {study.preview && <SkipButton label={t("skipConsent")} onClick={skipConsent} disabled={busy} />}
+      </div>
       {err && <div className="mt-3 text-[13.5px] text-ember-600">{err}</div>}
     </div>
   );
