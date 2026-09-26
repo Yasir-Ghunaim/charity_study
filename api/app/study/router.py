@@ -168,6 +168,14 @@ def join(body: JoinIn, request: Request, response: Response):
     consent = C.consent_for(st["mode"], st["wallet"])
     if body.consentVersion != consent["version"]:
         raise HTTPException(409, "consent text changed; reload the page")
+    # A browser that took part in another study joins this one as a new
+    # participant; earlier studies are recorded so carry-over can be analysed.
+    prev = _participant(request, required=False)
+    if prev and prev.get("study_id") == st["id"] and not prev.get("is_preview"):
+        raise HTTPException(409, "you are already taking part in this study")
+    prior = []
+    if prev and not prev.get("is_preview"):
+        prior = [x for x in (prev.get("prior_studies") or "").split(",") if x] + [prev.get("study_id") or ""]
     nick = " ".join(body.nickname.split())
     pid = str(uuid.uuid4())
     code = secrets.token_hex(3).upper()                     # e.g. 4F9A2C
@@ -181,12 +189,14 @@ def join(body: JoinIn, request: Request, response: Response):
     with studydb.connect() as db:
         db.execute(
             """INSERT INTO participants (id,study_id,code,nickname,lang,condition,consent_version,consented_at,status,
-               wallet_start,agent_config,pre_done_at,user_agent,is_preview) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               wallet_start,agent_config,pre_done_at,user_agent,is_preview,prior_studies)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (pid, st["id"], code, nick, body.lang, st["mode"], consent["version"], now, status, st["wallet"],
              json.dumps(agent_config), None if st["pre_survey"] else now,
-             (request.headers.get("user-agent") or "")[:200], int(preview)))
+             (request.headers.get("user-agent") or "")[:200], int(preview), ",".join(p for p in prior if p) or None))
     response.set_cookie(COOKIE, pid, max_age=60 * 60 * 24 * 7, **_cookie_kw(request))
-    _log(pid, "join", payload={"lang": body.lang, "study": st["id"], "preview": preview})
+    _log(pid, "join", payload={"lang": body.lang, "study": st["id"], "preview": preview,
+                               "prior_studies": [p for p in prior if p]})
     return {"ok": True, "code": code}
 
 
@@ -599,7 +609,7 @@ def admin_summary(request: Request, study: str | None = None):
 STUDY_EXPORTS = {
     "participants": "SELECT p.id, p.study_id, p.code, p.nickname, p.lang, p.condition AS mode, p.consent_version, "
                     "p.consented_at, p.status, p.wallet_start, p.agent_config, p.pre_done_at, p.finished_at, "
-                    "p.completed_at FROM participants p{where} ORDER BY p.consented_at",
+                    "p.completed_at, p.prior_studies FROM participants p{where} ORDER BY p.consented_at",
     "allocations": "SELECT t.participant_id, p.study_id, t.campaign_id, t.amount, t.source, t.created_at, t.updated_at "
                    "FROM allocations t JOIN participants p ON p.id = t.participant_id{where} "
                    "ORDER BY t.participant_id, t.created_at",

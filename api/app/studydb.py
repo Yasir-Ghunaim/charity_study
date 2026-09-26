@@ -55,7 +55,8 @@ CREATE TABLE IF NOT EXISTS participants (
     finished_at     TEXT,
     completed_at    TEXT,
     user_agent      TEXT,
-    is_preview      INTEGER NOT NULL DEFAULT 0     -- admin preview runs: never counted as study data
+    is_preview      INTEGER NOT NULL DEFAULT 0,    -- admin preview runs: never counted as study data
+    prior_studies   TEXT                           -- studies this browser joined before, oldest first
 );
 CREATE TABLE IF NOT EXISTS survey_responses (
     id             {serial},
@@ -176,6 +177,8 @@ def init() -> str:
                 c.execute("ALTER TABLE participants ADD COLUMN study_id TEXT")
             if "is_preview" not in cols:
                 c.execute("ALTER TABLE participants ADD COLUMN is_preview INTEGER NOT NULL DEFAULT 0")
+            if "prior_studies" not in cols:
+                c.execute("ALTER TABLE participants ADD COLUMN prior_studies TEXT")
         if IS_PG:
             c.execute(_ddl(True))
         else:
