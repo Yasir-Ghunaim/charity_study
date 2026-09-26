@@ -41,7 +41,13 @@ export default function Admin() {
       ...init, headers: { "content-type": "application/json", "x-admin-token": token, ...(init.headers || {}) },
     });
     const body = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail ?? r.status));
+    if (!r.ok) {
+      // FastAPI validation errors arrive as a list; show the first one readably
+      const d = body.detail;
+      const text = typeof d === "string" ? d
+        : Array.isArray(d) && d[0] ? `${(d[0].loc ?? []).slice(-1)[0] ?? "value"}: ${d[0].msg}` : `Error ${r.status}`;
+      throw new Error(text);
+    }
     return body;
   }, [token]);
 
@@ -69,7 +75,12 @@ export default function Admin() {
 
   async function save() {
     if (!editing) return;
-    setMsg(""); setBusy("save");
+    setMsg("");
+    if (isNew && editing.id && !/^[a-z0-9][a-z0-9-]{2,39}$/.test(editing.id)) {
+      setMsg("Study ID: 3–40 characters, lowercase letters, digits and hyphens only (e.g. ramadan-pilot). Or leave it empty for an automatic one.");
+      return;
+    }
+    setBusy("save");
     const body = { ...editing, id: isNew ? (editing.id || undefined) : undefined };
     try {
       if (isNew) await call("/studies", { method: "POST", body: JSON.stringify(body) });
@@ -92,6 +103,15 @@ export default function Admin() {
       setStudies((all) => all.map((x) => (x.id === s.id ? { ...x, status: s.status } : x)));
       setMsg((e as Error).message);
     } finally { setBusy(null); }
+  }
+
+  async function preview(s: Study) {
+    setMsg(""); setBusy(`preview:${s.id}`);
+    try {
+      const { url } = await call(`/studies/${s.id}/preview`, { method: "POST" });
+      try { for (const k of Object.keys(sessionStorage)) if (k.startsWith("study_turns_")) sessionStorage.removeItem(k); } catch {}
+      window.location.href = url;          // same tab; "Exit preview" brings you back here
+    } catch (e) { setMsg((e as Error).message); setBusy(null); }
   }
 
   async function remove(s: Study) {
@@ -170,6 +190,10 @@ export default function Admin() {
                   </td>
                   <td className="px-3 py-3"><button onClick={() => copy(s.id)} className="text-brand-600 hover:underline">{copied === s.id ? "copied ✓" : "copy link"}</button></td>
                   <td className="px-3 py-3 text-right">
+                    <button onClick={() => preview(s)} disabled={!!busy}
+                      className="me-3 inline-flex items-center gap-1 font-semibold text-brand-600 hover:underline">
+                      {busy === `preview:${s.id}` && <span className="spinner" />}preview
+                    </button>
                     <button onClick={() => { setIsNew(false); setEditing({ ...s }); setMsg(""); }} className="text-brand-600 hover:underline">edit</button>
                     {n(s) === 0 && <button onClick={() => remove(s)} className="ms-3 text-muted hover:text-ember-600">delete</button>}
                   </td>
@@ -178,7 +202,8 @@ export default function Admin() {
             </tbody>
           </table>
         </div>
-        <p className="mt-2 text-[12.5px] text-muted">Only <b>open</b> studies accept participants. Once a study has participants its design is locked; to change it, create a new study.</p>
+        <p className="mt-2 text-[12.5px] text-muted">Only <b>open</b> studies accept participants. Once a study has participants its design is locked; to change it, create a new study.
+          <b> Preview</b> lets you go through any study (drafts too) as a participant; preview runs are never counted in the data.</p>
       </section>
 
       {/* ----------------------------------------------------------- editor */}

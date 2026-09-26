@@ -21,7 +21,7 @@ export type Wallet = { start: number; allocated: number; remaining: number; item
 export type Mode = "assistant" | "assistant_browse" | "browse";
 
 export type Participant = {
-  code: string; nickname: string; lang: "ar" | "en";
+  code: string; nickname: string; lang: "ar" | "en"; preview: boolean;
   status: "consented" | "pre_done" | "finished" | "completed"; wallet: Wallet;
   study: { id: string | null; mode: Mode; maxTurns: number; preSurvey: boolean; postSurvey: boolean; assistant: boolean; browse: boolean };
 };
@@ -30,7 +30,7 @@ export type ConsentText = { title: string; sections: { heading: string; body: st
 
 export type StudyPublic = {
   id: string; status: "draft" | "open" | "closed"; mode: Mode; wallet: number; maxTurns: number;
-  preSurvey: boolean; postSurvey: boolean;
+  preSurvey: boolean; postSurvey: boolean; preview: boolean;
   consent: { version: string; ar: ConsentText; en: ConsentText };
 };
 

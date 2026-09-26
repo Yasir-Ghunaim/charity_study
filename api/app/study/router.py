@@ -7,6 +7,8 @@ body. Admin export is protected by STUDY_ADMIN_TOKEN.
 from __future__ import annotations
 
 import csv
+import hashlib
+import hmac
 import io
 import json
 import os
@@ -26,6 +28,33 @@ from . import config as C
 
 router = APIRouter(prefix="/study", tags=["study"])
 COOKIE = "study_pid"
+PREVIEW_COOKIE = "study_preview"       # set from /admin: lets the admin run a study without counting as data
+
+
+def _preview_sig(study_id: str) -> str | None:
+    token = os.environ.get("STUDY_ADMIN_TOKEN")
+    if not token:
+        return None
+    return hmac.new(token.encode(), f"preview:{study_id}".encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def _preview_study(request: Request) -> str | None:
+    """The study id this browser may preview, if it holds a valid preview cookie."""
+    raw = request.cookies.get(PREVIEW_COOKIE) or ""
+    sid, _, sig = raw.rpartition(".")
+    good = _preview_sig(sid) if sid else None
+    return sid if good and secrets.compare_digest(good, sig) else None
+
+
+def _cookie_kw(request: Request) -> dict:
+    return {"httponly": True, "samesite": "lax", "path": "/",
+            "secure": request.headers.get("x-forwarded-proto") == "https"}
+
+
+def _delete_participant(db, pid: str) -> None:
+    for t in ("survey_responses", "allocations", "study_events", "agent_turns"):
+        db.execute(f"DELETE FROM {t} WHERE participant_id=?", (pid,))
+    db.execute("DELETE FROM participants WHERE id=?", (pid,))
 
 
 def _now() -> str:
@@ -94,6 +123,7 @@ def _log(pid: str, type_: str, campaign_id: str | None = None, payload: dict | N
 
 def _public(p: dict) -> dict:
     return {"code": p["code"], "nickname": p["nickname"], "lang": p["lang"], "status": p["status"],
+            "preview": bool(p.get("is_preview")),
             "study": {"id": p.get("study_id"), "mode": p["mode"], "maxTurns": p["max_turns"],
                       "preSurvey": p["pre_survey"], "postSurvey": p["post_survey"],
                       "assistant": C.MODES[p["mode"]]["assistant"], "browse": C.MODES[p["mode"]]["browse"]}}
@@ -101,11 +131,11 @@ def _public(p: dict) -> dict:
 
 # ------------------------------------------------------------ public study
 @router.get("/s/{study_id}")
-def public_study(study_id: str):
+def public_study(study_id: str, request: Request):
     st = _study(study_id)
     if not st:
         raise HTTPException(404, "study not found")
-    return _study_public(st)
+    return {**_study_public(st), "preview": _preview_study(request) == study_id}
 
 
 @router.get("/open")
@@ -132,7 +162,8 @@ def join(body: JoinIn, request: Request, response: Response):
     st = _study(body.studyId)
     if not st:
         raise HTTPException(404, "study not found")
-    if st["status"] != "open":
+    preview = _preview_study(request) == st["id"]
+    if st["status"] != "open" and not preview:
         raise HTTPException(409, "this study is not accepting participants")
     consent = C.consent_for(st["mode"], st["wallet"])
     if body.consentVersion != consent["version"]:
@@ -150,13 +181,12 @@ def join(body: JoinIn, request: Request, response: Response):
     with studydb.connect() as db:
         db.execute(
             """INSERT INTO participants (id,study_id,code,nickname,lang,condition,consent_version,consented_at,status,
-               wallet_start,agent_config,pre_done_at,user_agent) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               wallet_start,agent_config,pre_done_at,user_agent,is_preview) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (pid, st["id"], code, nick, body.lang, st["mode"], consent["version"], now, status, st["wallet"],
              json.dumps(agent_config), None if st["pre_survey"] else now,
-             (request.headers.get("user-agent") or "")[:200]))
-    response.set_cookie(COOKIE, pid, httponly=True, samesite="lax", max_age=60 * 60 * 24 * 7, path="/",
-                        secure=request.headers.get("x-forwarded-proto") == "https")
-    _log(pid, "join", payload={"lang": body.lang, "study": st["id"]})
+             (request.headers.get("user-agent") or "")[:200], int(preview)))
+    response.set_cookie(COOKIE, pid, max_age=60 * 60 * 24 * 7, **_cookie_kw(request))
+    _log(pid, "join", payload={"lang": body.lang, "study": st["id"], "preview": preview})
     return {"ok": True, "code": code}
 
 
@@ -390,6 +420,38 @@ def withdraw(request: Request, response: Response):
     return {"ok": True}
 
 
+# ----------------------------------------------------------------- preview
+def _end_preview_run(request: Request) -> str | None:
+    """Delete the current browser's preview run, if it has one. Returns its study id."""
+    pid = request.cookies.get(COOKIE)
+    if not pid:
+        return None
+    with studydb.connect() as db:
+        row = db.one("SELECT study_id, is_preview FROM participants WHERE id=?", (pid,))
+        if row and row["is_preview"]:
+            _delete_participant(db, pid)
+            return row["study_id"]
+    return None
+
+
+@router.post("/preview/restart")
+def preview_restart(request: Request, response: Response):
+    sid = _preview_study(request)
+    if not sid:
+        raise HTTPException(403, "not in preview mode")
+    _end_preview_run(request)
+    response.delete_cookie(COOKIE, path="/")
+    return {"url": f"/s/{sid}"}
+
+
+@router.post("/preview/exit")
+def preview_exit(request: Request, response: Response):
+    _end_preview_run(request)
+    response.delete_cookie(COOKIE, path="/")
+    response.delete_cookie(PREVIEW_COOKIE, path="/")
+    return {"url": "/admin"}
+
+
 # ------------------------------------------------------------------- admin
 def _admin(request: Request) -> None:
     token = os.environ.get("STUDY_ADMIN_TOKEN")
@@ -424,8 +486,10 @@ def _study_admin(r: dict, counts: dict) -> dict:
 
 
 def _counts(db, study_id: str) -> dict:
+    """Real participants only: preview runs neither count nor lock a study."""
     return {r["status"]: r["n"] for r in db.all(
-        "SELECT status, COUNT(*) AS n FROM participants WHERE study_id=? GROUP BY status", (study_id,))}
+        "SELECT status, COUNT(*) AS n FROM participants WHERE study_id=? AND is_preview=0 GROUP BY status",
+        (study_id,))}
 
 
 @router.get("/admin/studies")
@@ -476,18 +540,35 @@ def admin_update_study(study_id: str, body: StudyIn, request: Request):
         return _study_admin(db.one("SELECT * FROM studies WHERE id=?", (study_id,)), counts)
 
 
+@router.post("/admin/studies/{study_id}/preview")
+def admin_preview(study_id: str, request: Request, response: Response):
+    """Put this browser in preview mode for a study (drafts included)."""
+    _admin(request)
+    if not _study(study_id):
+        raise HTTPException(404, "study not found")
+    _end_preview_run(request)                   # a previous preview run in this browser
+    response.delete_cookie(COOKIE, path="/")    # never reuse a participant session for a preview
+    response.set_cookie(PREVIEW_COOKIE, f"{study_id}.{_preview_sig(study_id)}", max_age=60 * 60 * 12,
+                        **_cookie_kw(request))
+    return {"url": f"/s/{study_id}"}
+
+
 @router.delete("/admin/studies/{study_id}")
 def admin_delete_study(study_id: str, request: Request):
     _admin(request)
     with studydb.connect() as db:
         if sum(_counts(db, study_id).values()):
             raise HTTPException(409, "this study has participants; close it instead of deleting it")
+        for r in db.all("SELECT id FROM participants WHERE study_id=? AND is_preview=1", (study_id,)):
+            _delete_participant(db, r["id"])
         db.execute("DELETE FROM studies WHERE id=?", (study_id,))
     return {"ok": True}
 
 
 def _study_filter(study: str | None, alias: str = "p") -> tuple[str, tuple]:
-    return (f" WHERE {alias}.study_id=?", (study,)) if study else ("", ())
+    """Real participants only (preview runs are excluded), optionally one study."""
+    where = f" WHERE {alias}.is_preview = 0"
+    return (where + f" AND {alias}.study_id=?", (study,)) if study else (where, ())
 
 
 @router.get("/admin/summary")

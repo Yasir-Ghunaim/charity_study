@@ -15,7 +15,7 @@ export default async function StudyLink({ params }: { params: Promise<{ id: stri
     <>
       <StudyHeader />
       <main className="mx-auto max-w-3xl px-5 py-8">
-        {study.status === "open" ? <Consent study={study} />
+        {study.status === "open" || study.preview ? <Consent study={study} />
           : <Notice text={translate(lang, study.status === "draft" ? "studyDraft" : "studyClosed")} />}
       </main>
       <StudyFooter />

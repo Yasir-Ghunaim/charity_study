@@ -54,7 +54,8 @@ CREATE TABLE IF NOT EXISTS participants (
     pre_done_at     TEXT,
     finished_at     TEXT,
     completed_at    TEXT,
-    user_agent      TEXT
+    user_agent      TEXT,
+    is_preview      INTEGER NOT NULL DEFAULT 0     -- admin preview runs: never counted as study data
 );
 CREATE TABLE IF NOT EXISTS survey_responses (
     id             {serial},
@@ -169,8 +170,12 @@ def init() -> str:
     with connect() as c:
         # databases created before multi-study support: add the column first,
         # so the index in the DDL below can be created
-        if "participants" in _tables(c) and "study_id" not in _columns(c, "participants"):
-            c.execute("ALTER TABLE participants ADD COLUMN study_id TEXT")
+        if "participants" in _tables(c):
+            cols = _columns(c, "participants")
+            if "study_id" not in cols:
+                c.execute("ALTER TABLE participants ADD COLUMN study_id TEXT")
+            if "is_preview" not in cols:
+                c.execute("ALTER TABLE participants ADD COLUMN is_preview INTEGER NOT NULL DEFAULT 0")
         if IS_PG:
             c.execute(_ddl(True))
         else:
