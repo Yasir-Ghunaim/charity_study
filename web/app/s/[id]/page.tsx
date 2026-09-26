@@ -8,11 +8,9 @@ import { translate } from "@/lib/i18n";
 // Participant link for one study: /s/<study id>
 export default async function StudyLink({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const me = await api.me();
+  const [me, study, lang] = await Promise.all([api.me(), api.study(id), getLang()]);
   if (me) redirect(routeFor(me));
-  const study = await api.study(id);
   if (!study) notFound();
-  const lang = await getLang();
   return (
     <>
       <StudyHeader />

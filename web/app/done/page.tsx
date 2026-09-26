@@ -4,10 +4,9 @@ import { api, getLang, routeFor } from "@/lib/api";
 import { translate } from "@/lib/i18n";
 
 export default async function Done() {
-  const me = await api.me();
+  const [me, lang] = await Promise.all([api.me(), getLang()]);
   if (!me) redirect("/");
   if (me.status !== "completed") redirect(routeFor(me));
-  const lang = await getLang();
   const t = (k: Parameters<typeof translate>[1]) => translate(lang, k);
   return (
     <>

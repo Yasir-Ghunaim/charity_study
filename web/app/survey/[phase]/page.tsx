@@ -7,10 +7,9 @@ import { translate } from "@/lib/i18n";
 export default async function SurveyPage({ params }: { params: Promise<{ phase: string }> }) {
   const { phase } = await params;
   if (phase !== "pre" && phase !== "post") notFound();
-  const me = await api.me();
+  const [me, survey, lang] = await Promise.all([api.me(), api.survey(phase), getLang()]);
   if (!me) redirect("/");
   if (routeFor(me) !== `/survey/${phase}`) redirect(routeFor(me));
-  const [survey, lang] = await Promise.all([api.survey(phase), getLang()]);
   if (!survey) notFound();
   const t = (k: Parameters<typeof translate>[1]) => translate(lang, k);
   return (

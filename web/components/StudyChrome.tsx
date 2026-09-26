@@ -5,7 +5,7 @@ import { useWallet } from "@/lib/wallet";
 import { LangIcon } from "./Icons";
 
 export function StudyHeader({ step }: { step?: 1 | 2 | 3 }) {
-  const { lang, t, setLang } = useLang();
+  const { lang, t, setLang, switching } = useLang();
   const w = useWallet();
   const labels = [t("stepPre"), t("stepTask"), t("stepPost")];
   return (
@@ -27,8 +27,9 @@ export function StudyHeader({ step }: { step?: 1 | 2 | 3 }) {
               <span className="text-muted">{t("of")} <span className="num">{w.wallet.start.toLocaleString("en-US")}</span></span>
             </div>
           )}
-          <button onClick={() => setLang(lang === "ar" ? "en" : "ar")} className="flex items-center gap-1.5 text-[14px] hover:text-brand-600">
-            <LangIcon size={18} /> {t("switchLang")}
+          <button onClick={() => setLang(lang === "ar" ? "en" : "ar")} disabled={switching} aria-busy={switching}
+            className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-[14px] hover:bg-panel hover:text-brand-600 disabled:opacity-70">
+            {switching ? <span className="spinner text-brand-500" /> : <LangIcon size={18} />} {t("switchLang")}
           </button>
         </div>
       </div>

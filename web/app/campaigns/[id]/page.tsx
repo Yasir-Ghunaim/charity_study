@@ -13,10 +13,9 @@ import { WalletProvider } from "@/lib/wallet";
 
 export default async function CampaignPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const me = await api.me();
+  const [me, c, lang] = await Promise.all([api.me(), api.campaign(id), getLang()]);
   if (!me) redirect("/");
   if (me.status !== "pre_done") redirect(routeFor(me));
-  const [c, lang] = await Promise.all([api.campaign(id), getLang()]);
   if (!c) notFound();
   const t = (k: Parameters<typeof translate>[1], v?: Record<string, string | number>) => translate(lang, k, v);
   const cp = c.charityProfile;
